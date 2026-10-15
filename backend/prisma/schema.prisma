@@ -38,9 +38,23 @@ model User {
   department   Department?   @relation(fields: [departmentId], references: [id])
   auditLogs    AuditLog[]
   importBatches ImportBatch[]
+  sessions     Session[]
 
   @@index([roleId])
   @@index([departmentId])
+}
+
+// One row per active login. The cookie holds a random token; only its hash is stored here.
+model Session {
+  id        String   @id // hash of the random token kept in the cookie
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Role {
