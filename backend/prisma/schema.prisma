@@ -1,0 +1,339 @@
+// ADC Fleet Management System — v1 schema (design stage)
+// Assumptions marked with "ASSUMPTION" are pending owner confirmation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Access ─────────────────────────
+
+enum UserStatus {
+  active
+  inactive
+  pending
+}
+
+model User {
+  id                 Int        @id @default(autoincrement())
+  name               String
+  surname            String
+  email              String     @unique
+  passwordHash       String
+  mustChangePassword Boolean    @default(true)
+  position           String?
+  status             UserStatus @default(pending)
+  roleId             Int
+  departmentId       Int?
+  lastLoginAt        DateTime?
+  deletedAt          DateTime? // soft delete: keep a trace of removed users
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  role         Role          @relation(fields: [roleId], references: [id])
+  department   Department?   @relation(fields: [departmentId], references: [id])
+  auditLogs    AuditLog[]
+  importBatches ImportBatch[]
+
+  @@index([roleId])
+  @@index([departmentId])
+}
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique // admin | standard | dept_manager | read_only
+  users       User[]
+  permissions Permission[]
+}
+
+model Module {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique // system | dashboard | fleet | maintenance | rollout
+  permissions Permission[]
+}
+
+model Permission {
+  id        Int     @id @default(autoincrement())
+  roleId    Int
+  moduleId  Int
+  canView   Boolean @default(false)
+  canCreate Boolean @default(false)
+  canEdit   Boolean @default(false)
+  canDelete Boolean @default(false)
+  canUpload Boolean @default(false)
+  canExport Boolean @default(false)
+
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, moduleId])
+}
+
+// ───────────────────── Reference data ─────────────────────
+
+model Department {
+  id            Int           @id @default(autoincrement())
+  name          String        @unique // Instalime | Operations | B2B | D2D | Administrata
+  users         User[]
+  vehicles      Vehicle[]
+  fuelRollouts  FuelRollout[]
+}
+
+model Company {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique // ADC | Volton | Setup
+  vehicles     Vehicle[]
+  fuelRollouts FuelRollout[]
+}
+
+model City {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  vehicles Vehicle[]
+}
+
+model Supplier {
+  id                   Int                   @id @default(autoincrement())
+  name                 String                @unique // Elda | Kastrati
+  fuelRollouts         FuelRollout[]
+  fuelTransactions     FuelTransaction[]
+  fuelPrices           FuelPrice[]
+  fuelReconciliations  FuelReconciliation[]
+}
+
+model FuelType {
+  id                   Int                   @id @default(autoincrement())
+  name                 String                @unique // Benzine | Nafte
+  fuelRollouts         FuelRollout[]
+  fuelTransactions     FuelTransaction[]
+  fuelPrices           FuelPrice[]
+  fuelReconciliations  FuelReconciliation[]
+}
+
+model VehicleStatus {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique // Aktiv | Ne servis | Joaktiv
+  vehicles Vehicle[]
+}
+
+model VehicleModel {
+  id       Int       @id @default(autoincrement())
+  make     String
+  model    String
+  vehicles Vehicle[]
+
+  @@unique([make, model])
+}
+
+model Driver {
+  id       Int       @id @default(autoincrement())
+  name     String
+  vehicles Vehicle[]
+
+  @@index([name])
+}
+
+// ───────────────────── Fleet & maintenance ─────────────────────
+
+model Vehicle {
+  id           Int       @id @default(autoincrement())
+  plate        String    @unique // normalized on write: trim + uppercase
+  chassisNo    String?   @unique
+  year         Int?
+  mileageKm    Int?
+  teamNo       String?
+  vehicleNo    String?
+  hasExhaust   Boolean   @default(false)
+  hasGps       Boolean   @default(false)
+  sensors      String?
+  cityId       Int
+  companyId    Int? // branding: ADC | Volton | Setup
+  departmentId Int // ASSUMPTION: one department per vehicle (new column in fleet sheet)
+  modelId      Int
+  statusId     Int
+  driverId     Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  city        City          @relation(fields: [cityId], references: [id])
+  company     Company?      @relation(fields: [companyId], references: [id])
+  department  Department    @relation(fields: [departmentId], references: [id])
+  model       VehicleModel  @relation(fields: [modelId], references: [id])
+  status      VehicleStatus @relation(fields: [statusId], references: [id])
+  driver      Driver?       @relation(fields: [driverId], references: [id])
+
+  insurances       Insurance[]
+  inspections      Inspection[]
+  serviceRecords   ServiceRecord[]
+  fuelRollouts     FuelRollout[]
+  fuelTransactions FuelTransaction[]
+
+  @@index([cityId])
+  @@index([departmentId])
+  @@index([modelId])
+  @@index([statusId])
+  @@index([driverId])
+}
+
+// One row per insurance period; dashboard uses the latest endDate per vehicle.
+model Insurance {
+  id        Int      @id @default(autoincrement())
+  vehicleId Int
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, endDate])
+}
+
+// Kolaudim. Same shape as Insurance.
+model Inspection {
+  id        Int      @id @default(autoincrement())
+  vehicleId Int
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, endDate])
+}
+
+model ServiceRecord {
+  id          Int       @id @default(autoincrement())
+  vehicleId   Int
+  service     String
+  serviceDate DateTime? @db.Date
+  provider    String? // workshop / service provider
+  cost        Decimal?  @db.Decimal(12, 2) // in the system currency
+  description String?
+  createdAt   DateTime  @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, serviceDate])
+}
+
+// ───────────────────────── Fuel ─────────────────────────
+
+// Monthly header per vehicle. Weekly columns / totals are calculated
+// from FuelTransaction, not stored.
+model FuelRollout {
+  id           Int      @id @default(autoincrement())
+  vehicleId    Int
+  yearMonth    Int // YYYYMM, e.g. 202609
+  chip         String?
+  limitL       Decimal  @db.Decimal(10, 2) // limit in litres
+  supplierId   Int
+  fuelTypeId   Int
+  departmentId Int // copied from vehicle at creation, editable
+  companyId    Int? // copied from vehicle at creation
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vehicle      Vehicle           @relation(fields: [vehicleId], references: [id])
+  supplier     Supplier          @relation(fields: [supplierId], references: [id])
+  fuelType     FuelType          @relation(fields: [fuelTypeId], references: [id])
+  department   Department        @relation(fields: [departmentId], references: [id])
+  company      Company?          @relation(fields: [companyId], references: [id])
+  transactions FuelTransaction[]
+
+  @@unique([vehicleId, yearMonth])
+  @@index([yearMonth])
+  @@index([departmentId, yearMonth])
+}
+
+// Source of truth for fuel. One row per fill, or per week if that is all
+// the supplier platforms export (to be confirmed).
+model FuelTransaction {
+  id             Int      @id @default(autoincrement())
+  vehicleId      Int
+  rolloutId      Int?
+  date           DateTime @db.Date
+  litres         Decimal  @db.Decimal(10, 2)
+  unitPrice      Decimal? @db.Decimal(10, 4) // price per litre on that day
+  amount         Decimal? @db.Decimal(12, 2) // litres * unitPrice, set on insert
+  priceEstimated Boolean  @default(false) // true if price came from FuelPrice
+  supplierId     Int
+  fuelTypeId     Int
+  importBatchId  Int?
+  createdAt      DateTime @default(now())
+
+  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
+  rollout     FuelRollout? @relation(fields: [rolloutId], references: [id])
+  supplier    Supplier     @relation(fields: [supplierId], references: [id])
+  fuelType    FuelType     @relation(fields: [fuelTypeId], references: [id])
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([vehicleId, date])
+  @@index([rolloutId])
+  @@index([supplierId, fuelTypeId, date])
+}
+
+// Default price when a transaction has none: latest effectiveDate <= date.
+model FuelPrice {
+  id            Int      @id @default(autoincrement())
+  supplierId    Int
+  fuelTypeId    Int
+  effectiveDate DateTime @db.Date
+  pricePerL     Decimal  @db.Decimal(10, 4)
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  fuelType FuelType @relation(fields: [fuelTypeId], references: [id])
+
+  @@unique([supplierId, fuelTypeId, effectiveDate])
+}
+
+// "Raporti Blerje/Shpenzim". Spent and error margin are calculated.
+model FuelReconciliation {
+  id             Int     @id @default(autoincrement())
+  supplierId     Int
+  fuelTypeId     Int
+  yearMonth      Int
+  purchased      Decimal @db.Decimal(12, 2)
+  platformAmount Decimal @db.Decimal(12, 2)
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  fuelType FuelType @relation(fields: [fuelTypeId], references: [id])
+
+  @@unique([supplierId, fuelTypeId, yearMonth])
+}
+
+// ───────────────────────── System ─────────────────────────
+
+model ImportBatch {
+  id          Int      @id @default(autoincrement())
+  uploadedBy  Int
+  module      String // fleet | rollout
+  fileName    String
+  rowsOk      Int      @default(0)
+  rowsFailed  Int      @default(0)
+  errors      Json?
+  createdAt   DateTime @default(now())
+
+  user             User              @relation(fields: [uploadedBy], references: [id])
+  fuelTransactions FuelTransaction[]
+}
+
+// Insert-only. Read access: admin only.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String // create | update | delete | login | import ...
+  entity    String
+  entityId  Int?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+}
