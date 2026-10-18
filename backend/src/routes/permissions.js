@@ -83,7 +83,7 @@ router.put(
         entityId: updated.id,
         before: before
           ? { role: role.name, module: module.name, ...flagsOf(before) }
-          : null,
+          : undefined,
         after: { role: role.name, module: module.name, ...flagsOf(updated) },
       },
     });

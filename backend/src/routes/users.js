@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const { prisma } = require("../db");
 const { requireAuth } = require("../auth/session");
 const { requirePermission } = require("../auth/permissions");
+const { audit: writeAudit } = require("../lib/audit");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -27,16 +28,7 @@ const view = (u) => ({
 const isUniqueError = (err) => err && err.code === "P2002";
 
 const audit = (req, action, user, before, after) =>
-  prisma.auditLog.create({
-    data: {
-      userId: req.user.id,
-      action,
-      entity: "User",
-      entityId: user.id,
-      before,
-      after,
-    },
-  });
+  writeAudit(req, action, "User", user.id, before, after);
 
 // True if this change would leave the system without an active admin.
 async function losesLastAdmin(target, next) {

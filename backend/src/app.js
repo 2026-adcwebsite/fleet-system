@@ -1,13 +1,17 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
+const config = require("./config");
 const { prisma } = require("./db");
-const { requireAuth } = require("./auth/session");
-const { requirePermission } = require("./auth/permissions");
+const { notFound, errorHandler } = require("./middleware/errors");
 
 const app = express();
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+if (config.trustProxy) app.set("trust proxy", config.trustProxy);
+
+app.use(helmet());
+app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -18,16 +22,19 @@ app.get("/api/health", async (req, res) => {
 
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
+app.use("/api/me", require("./routes/me"));
 app.use("/api/permissions", require("./routes/permissions"));
+app.use("/api/vehicles", require("./routes/vehicles"));
+app.use("/api/service-records", require("./routes/maintenance"));
+app.use("/api/rollouts", require("./routes/rollouts"));
+app.use("/api/dashboard", require("./routes/dashboard"));
+app.use("/api/imports", require("./routes/imports"));
+app.use("/api/exports", require("./routes/exports"));
+app.use("/api", require("./routes/fuel"));
+app.use("/api", require("./routes/reference"));
 
-// TEMPORARY: remove after testing permissions
-app.get(
-  "/api/_test/fleet",
-  requireAuth,
-  requirePermission("fleet", "view"),
-  (req, res) => {
-    res.json({ ok: true });
-  },
-);
+// must stay last
+app.use("/api", notFound);
+app.use(errorHandler);
 
 module.exports = app;
