@@ -1,9 +1,19 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import * as authApi from '../api/auth';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import * as authApi from "../api/auth";
+import { setApiHandlers } from "../api/client";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  const qc = useQueryClient();
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState({});
   const [loading, setLoading] = useState(true); // true while checking for an existing session
@@ -28,6 +38,19 @@ export function AuthProvider({ children }) {
     })();
   }, [loadPermissions]);
 
+  // 401 anywhere -> logged out. 403 MUST_CHANGE_PASSWORD -> lock the user.
+  useEffect(() => {
+    setApiHandlers({
+      onUnauthorized: () => {
+        setUser(null);
+        setPermissions({});
+        qc.clear();
+      },
+      onMustChangePassword: () =>
+        setUser((u) => (u ? { ...u, mustChangePassword: true } : u)),
+    });
+  }, [qc]);
+
   const login = useCallback(
     async (email, password) => {
       const { user } = await authApi.login(email, password);
@@ -44,8 +67,9 @@ export function AuthProvider({ children }) {
     } finally {
       setUser(null);
       setPermissions({});
+      qc.clear();
     }
-  }, []);
+  }, [qc]);
 
   // Reload user + permissions (used after a password change)
   const refresh = useCallback(async () => {
