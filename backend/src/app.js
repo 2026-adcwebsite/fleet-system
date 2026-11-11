@@ -1,3 +1,5 @@
+const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -33,8 +35,19 @@ app.use("/api/exports", require("./routes/exports"));
 app.use("/api", require("./routes/fuel"));
 app.use("/api", require("./routes/reference"));
 
-// must stay last
 app.use("/api", notFound);
+
+// In production the built frontend (frontend/dist) is served from the same origin as the API
+const webDist = path.join(__dirname, "..", "..", "frontend", "dist");
+if (fs.existsSync(webDist)) {
+  app.use(express.static(webDist, { index: false }));
+  // React Router: any non-API GET returns index.html
+  app.get(/^(?!\/api(\/|$)).*/, (req, res) =>
+    res.sendFile(path.join(webDist, "index.html")),
+  );
+}
+
+// must stay last
 app.use(errorHandler);
 
 module.exports = app;

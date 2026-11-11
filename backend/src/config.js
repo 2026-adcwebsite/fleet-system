@@ -12,7 +12,12 @@ const problems = [];
 if (!env.DATABASE_URL) problems.push("DATABASE_URL is not set");
 
 // comma-separated list of browser origins allowed to call the API (with cookies)
-const corsOrigins = (env.CORS_ORIGIN || (isProd ? "" : "http://localhost:5173"))
+// on Render, RENDER_EXTERNAL_URL (the service's own https URL) is used when CORS_ORIGIN is not set
+const corsOrigins = (
+  env.CORS_ORIGIN ||
+  env.RENDER_EXTERNAL_URL ||
+  (isProd ? "" : "http://localhost:5173")
+)
   .split(",")
   .map((s) => s.trim().replace(/\/$/, ""))
   .filter(Boolean);
